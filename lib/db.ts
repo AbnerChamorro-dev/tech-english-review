@@ -1,22 +1,20 @@
-import Database from "better-sqlite3";
-import path from "path";
+import { createClient, type Client } from "@libsql/client";
 
-const DB_PATH = path.join(process.cwd(), "tech-english-review.db");
+let _client: Client | null = null;
 
-let _db: Database.Database | null = null;
-
-export function getDb(): Database.Database {
-  if (!_db) {
-    _db = new Database(DB_PATH);
-    _db.pragma("journal_mode = WAL");
-    _db.pragma("foreign_keys = ON");
-    initSchema(_db);
+export function getClient(): Client {
+  if (!_client) {
+    _client = createClient({
+      url: process.env.TURSO_DATABASE_URL!,
+      authToken: process.env.TURSO_AUTH_TOKEN,
+    });
   }
-  return _db;
+  return _client;
 }
 
-function initSchema(db: Database.Database) {
-  db.exec(`
+export async function initSchema() {
+  const db = getClient();
+  await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS phrases (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       story_id TEXT NOT NULL,

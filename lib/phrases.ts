@@ -1,104 +1,95 @@
-import type { Database } from "better-sqlite3";
-import type { Phrase, PhraseWithReview, Level } from "./types";
+import type { Client } from "@libsql/client";
+import type { PhraseWithReview, Level } from "./types";
 import { calcNextReview } from "./spaced-repetition";
 
-interface CountRow {
-  n: number;
+export async function getCompletedStoryIds(db: Client): Promise<string[]> {
+  const result = await db.execute("SELECT story_id FROM completed_stories");
+  return result.rows.map((r) => r.story_id as string);
 }
 
-interface StoryRow {
-  story_id: string;
-  story_title: string;
-  level: string;
-  phrase_count: number;
-  completed_at: string | null;
+export async function markStoryComplete(db: Client, storyId: string) {
+  await db.execute({
+    sql: "INSERT OR REPLACE INTO completed_stories (story_id, completed_at) VALUES (?, ?)",
+    args: [storyId, new Date().toISOString()],
+  });
 }
 
-interface ReviewRow {
-  phrase_id: number;
-  interval: number;
-  ease: number;
-  next_review: string;
+export async function markStoryIncomplete(db: Client, storyId: string) {
+  await db.execute({ sql: "DELETE FROM completed_stories WHERE story_id = ?", args: [storyId] });
 }
 
-export function getCompletedStoryIds(db: Database): string[] {
-  return db.prepare("SELECT story_id FROM completed_stories").all().map((r) => (r as { story_id: string }).story_id);
-}
-
-export function getPhrasesByStory(db: Database, storyId: string): Phrase[] {
-  return db.prepare('SELECT * FROM phrases WHERE story_id = ? ORDER BY "order"').all(storyId) as Phrase[];
-}
-
-export function markStoryComplete(db: Database, storyId: string) {
-  db.prepare("INSERT OR REPLACE INTO completed_stories (story_id, completed_at) VALUES (?, ?)").run(storyId, new Date().toISOString());
-}
-
-export function markStoryIncomplete(db: Database, storyId: string) {
-  db.prepare("DELETE FROM completed_stories WHERE story_id = ?").run(storyId);
-}
-
-export function getDuePhrases(db: Database, limit = 50): PhraseWithReview[] {
+export async function getDuePhrases(db: Client, limit = 50): Promise<PhraseWithReview[]> {
   const today = new Date().toISOString().split("T")[0];
-  return db.prepare(`
-    SELECT p.*, r.next_review, r.interval, r.ease, r.reviews_count, r.last_seen
-    FROM phrases p
-    INNER JOIN completed_stories cs ON cs.story_id = p.story_id
-    LEFT JOIN reviews r ON r.phrase_id = p.id
-    WHERE r.next_review IS NULL OR r.next_review <= ?
-    ORDER BY r.next_review ASC NULLS FIRST, p."order" ASC
-    LIMIT ?
-  `).all(today, limit) as PhraseWithReview[];
+  const result = await db.execute({
+    sql: `SELECT p.*, r.next_review, r.interval, r.ease, r.reviews_count, r.last_seen
+          FROM phrases p
+          INNER JOIN completed_stories cs ON cs.story_id = p.story_id
+          LEFT JOIN reviews r ON r.phrase_id = p.id
+          WHERE r.next_review IS NULL OR r.next_review <= ?
+          ORDER BY r.next_review ASC NULLS FIRST, p."order" ASC
+          LIMIT ?`,
+    args: [today, limit],
+  });
+  return result.rows as unknown as PhraseWithReview[];
 }
 
-export function getReviewStats(db: Database) {
+export async function getReviewStats(db: Client) {
   const today = new Date().toISOString().split("T")[0];
-  const total = db.prepare("SELECT COUNT(*) as n FROM phrases p INNER JOIN completed_stories cs ON cs.story_id = p.story_id").get() as CountRow;
-  const due = db.prepare("SELECT COUNT(*) as n FROM phrases p INNER JOIN completed_stories cs ON cs.story_id = p.story_id LEFT JOIN reviews r ON r.phrase_id = p.id WHERE r.next_review IS NULL OR r.next_review <= ?").get(today) as CountRow;
-  const learned = db.prepare("SELECT COUNT(*) as n FROM reviews WHERE interval >= 7").get() as CountRow;
-
-  return { total: total.n, due: due.n, learned: learned.n };
+  const [total, due, learned] = await Promise.all([
+    db.execute("SELECT COUNT(*) as n FROM phrases p INNER JOIN completed_stories cs ON cs.story_id = p.story_id"),
+    db.execute({ sql: "SELECT COUNT(*) as n FROM phrases p INNER JOIN completed_stories cs ON cs.story_id = p.story_id LEFT JOIN reviews r ON r.phrase_id = p.id WHERE r.next_review IS NULL OR r.next_review <= ?", args: [today] }),
+    db.execute("SELECT COUNT(*) as n FROM reviews WHERE interval >= 7"),
+  ]);
+  return {
+    total: Number(total.rows[0].n),
+    due: Number(due.rows[0].n),
+    learned: Number(learned.rows[0].n),
+  };
 }
 
-export function reviewPhrase(db: Database, phraseId: number, known: boolean) {
+export async function reviewPhrase(db: Client, phraseId: number, known: boolean) {
   const today = new Date().toISOString().split("T")[0];
-  const existing = db.prepare("SELECT * FROM reviews WHERE phrase_id = ?").get(phraseId) as ReviewRow | undefined;
+  const existing = await db.execute({ sql: "SELECT * FROM reviews WHERE phrase_id = ?", args: [phraseId] });
+  const row = existing.rows[0];
 
-  const current = existing
-    ? { interval: existing.interval, ease: existing.ease }
+  const current = row
+    ? { interval: Number(row.interval), ease: Number(row.ease) }
     : { interval: 1, ease: 2.5 };
 
   const next = calcNextReview(known, current);
 
-  if (existing) {
-    db.prepare(`
-      UPDATE reviews
-      SET next_review = date('now', '+' || ? || ' days'),
-          interval = ?, ease = ?, reviews_count = reviews_count + 1, last_seen = ?
-      WHERE phrase_id = ?
-    `).run(next.interval, next.interval, next.ease, today, phraseId);
+  if (row) {
+    await db.execute({
+      sql: `UPDATE reviews
+            SET next_review = date('now', '+' || ? || ' days'),
+                interval = ?, ease = ?, reviews_count = reviews_count + 1, last_seen = ?
+            WHERE phrase_id = ?`,
+      args: [next.interval, next.interval, next.ease, today, phraseId],
+    });
   } else {
-    db.prepare(`
-      INSERT INTO reviews (phrase_id, next_review, interval, ease, reviews_count, last_seen)
-      VALUES (?, date('now', '+' || ? || ' days'), ?, ?, 1, ?)
-    `).run(phraseId, next.interval, next.interval, next.ease, today);
+    await db.execute({
+      sql: `INSERT INTO reviews (phrase_id, next_review, interval, ease, reviews_count, last_seen)
+            VALUES (?, date('now', '+' || ? || ' days'), ?, ?, 1, ?)`,
+      args: [phraseId, next.interval, next.interval, next.ease, today],
+    });
   }
 }
 
-export function getStoriesWithStatus(db: Database) {
-  const stories = db.prepare(`
+export async function getStoriesWithStatus(db: Client) {
+  const result = await db.execute(`
     SELECT p.story_id, p.story_title, p.level, COUNT(*) as phrase_count,
            cs.completed_at
     FROM phrases p
     LEFT JOIN completed_stories cs ON cs.story_id = p.story_id
     GROUP BY p.story_id
     ORDER BY MIN(p."order")
-  `).all() as StoryRow[];
+  `);
 
-  return stories.map((s) => ({
-    id: s.story_id,
-    title: s.story_title,
+  return result.rows.map((s) => ({
+    id: s.story_id as string,
+    title: s.story_title as string,
     level: s.level as Level,
-    phraseCount: s.phrase_count,
+    phraseCount: Number(s.phrase_count),
     completed: s.completed_at !== null,
   }));
 }

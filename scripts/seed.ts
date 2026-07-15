@@ -1,19 +1,18 @@
-import Database from "better-sqlite3";
+import { createClient } from "@libsql/client";
 import path from "path";
 import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, "..", "tech-english-review.db");
+dotenv.config({ path: path.join(__dirname, "..", ".env.local") });
 
 async function main() {
-  const storiesPath = path.join(__dirname, "..", "..", "tech-english", "content", "stories.ts");
-  const { STORIES } = await import(storiesPath);
+  const db = createClient({
+    url: process.env.TURSO_DATABASE_URL!,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  });
 
-  const db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-
-  db.exec(`
+  await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS phrases (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       story_id TEXT NOT NULL,
@@ -37,20 +36,30 @@ async function main() {
     );
   `);
 
-  const insert = db.prepare(
-    'INSERT INTO phrases (story_id, story_title, level, en, es, "order") VALUES (?, ?, ?, ?, ?, ?)'
-  );
+  const storiesPath = path.join(__dirname, "..", "..", "tech-english", "content", "stories.ts");
+  const { STORIES } = await import(storiesPath);
 
+  const batch: { sql: string; args: (string | number)[] }[] = [];
   let count = 0;
+
   for (const story of STORIES) {
     for (const line of story.lines) {
-      insert.run(story.id, story.title, story.level, line.en, line.es, count);
+      batch.push({
+        sql: 'INSERT INTO phrases (story_id, story_title, level, en, es, "order") VALUES (?, ?, ?, ?, ?, ?)',
+        args: [story.id, story.title, story.level, line.en, line.es, count],
+      });
       count++;
     }
   }
 
-  console.log(`Imported ${count} phrases from ${STORIES.length} stories`);
-  db.close();
+  // Execute in batches of 50
+  for (let i = 0; i < batch.length; i += 50) {
+    const chunk = batch.slice(i, i + 50);
+    await db.batch(chunk);
+    process.stdout.write(`\rInserted ${Math.min(i + 50, batch.length)}/${count}...`);
+  }
+
+  console.log(`\nDone! Imported ${count} phrases from ${STORIES.length} stories into Turso`);
 }
 
 main();

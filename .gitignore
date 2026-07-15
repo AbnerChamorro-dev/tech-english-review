@@ -10,10 +10,8 @@
 !.yarn/releases
 !.yarn/versions
 
-# database
-*.db
-*.db-shm
-*.db-wal
+# env files
+.env*
 
 # testing
 /coverage

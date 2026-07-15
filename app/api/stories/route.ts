@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getClient } from "@/lib/db";
 import { getStoriesWithStatus } from "@/lib/phrases";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
-  const db = getDb();
-  const stories = getStoriesWithStatus(db);
+  const db = getClient();
+  const stories = await getStoriesWithStatus(db);
   return NextResponse.json(stories);
 }
