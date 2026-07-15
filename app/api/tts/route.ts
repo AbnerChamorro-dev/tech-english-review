@@ -4,8 +4,6 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 export async function POST(req: Request) {
   const { text } = await req.json();
   if (typeof text !== "string" || text.length === 0) {
@@ -21,6 +19,8 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "audio/mpeg", "Cache-Control": "public, max-age=31536000" },
     });
   }
+
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const response = await openai.audio.speech.create({
     model: "tts-1-hd",

@@ -12,6 +12,8 @@
 
 # database
 *.db
+*.db-shm
+*.db-wal
 
 # testing
 /coverage
