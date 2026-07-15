@@ -24,11 +24,16 @@ export default function ReviewPage() {
   const [done, setDone] = useState(false);
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      if (audioRef.current) audioRef.current.pause();
+      if (ctxRef.current) ctxRef.current.close();
+    };
   }, []);
 
   useEffect(() => {
@@ -47,6 +52,10 @@ export default function ReviewPage() {
       audioRef.current.pause();
       audioRef.current = null;
     }
+    if (ctxRef.current) {
+      ctxRef.current.close();
+      ctxRef.current = null;
+    }
     setPlaying(true);
     try {
       let blob = await getCachedAudio(text);
@@ -62,6 +71,15 @@ export default function ReviewPage() {
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;
+
+      const ctx = new AudioContext();
+      ctxRef.current = ctx;
+      const source = ctx.createMediaElementSource(audio);
+      const gain = ctx.createGain();
+      gain.gain.value = 2.5;
+      source.connect(gain);
+      gain.connect(ctx.destination);
+
       audio.onended = () => { if (mountedRef.current) setPlaying(false); };
       audio.onerror = () => { if (mountedRef.current) setPlaying(false); };
       await audio.play();
@@ -80,18 +98,36 @@ export default function ReviewPage() {
         audioRef.current.pause();
         audioRef.current = null;
       }
+      if (ctxRef.current) {
+        ctxRef.current.close();
+        ctxRef.current = null;
+      }
       setPlaying(true);
       try {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: phrase.en }),
-        });
+        let blob = await getCachedAudio(phrase.en);
+        if (!blob) {
+          const res = await fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: phrase.en }),
+          });
+          if (cancelled) return;
+          blob = await res.blob();
+          await setCachedAudio(phrase.en, blob);
+        }
         if (cancelled) return;
-        const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
         audioRef.current = audio;
+
+        const ctx = new AudioContext();
+        ctxRef.current = ctx;
+        const source = ctx.createMediaElementSource(audio);
+        const gain = ctx.createGain();
+        gain.gain.value = 2.5;
+        source.connect(gain);
+        gain.connect(ctx.destination);
+
         audio.onended = () => { if (!cancelled && mountedRef.current) setPlaying(false); };
         audio.onerror = () => { if (!cancelled && mountedRef.current) setPlaying(false); };
         await audio.play();
@@ -107,6 +143,10 @@ export default function ReviewPage() {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
+      }
+      if (ctxRef.current) {
+        ctxRef.current.close();
+        ctxRef.current = null;
       }
     };
   }, [index, phrases]);
