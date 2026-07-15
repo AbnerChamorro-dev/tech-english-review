@@ -39,11 +39,35 @@ export default function ReviewPage() {
   useEffect(() => {
     fetch("/api/phrases/due")
       .then((r) => r.json())
-      .then((data: Phrase[]) => {
+      .then(async (data: Phrase[]) => {
         if (!mountedRef.current) return;
         setPhrases(data);
         setLoading(false);
-        if (data.length === 0) setDone(true);
+        if (data.length === 0) {
+          setDone(true);
+          return;
+        }
+        // Pre-fetch audio in background
+        const concurrency = 3;
+        let idx = 0;
+        const worker = async () => {
+          while (idx < data.length) {
+            const i = idx++;
+            const text = data[i].en;
+            const cached = await getCachedAudio(text);
+            if (cached) continue;
+            try {
+              const res = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text }),
+              });
+              const blob = await res.blob();
+              await setCachedAudio(text, blob);
+            } catch { /* skip */ }
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(concurrency, data.length) }, () => worker()));
       });
   }, []);
 
