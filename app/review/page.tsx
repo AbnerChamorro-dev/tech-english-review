@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { getCachedAudio, setCachedAudio } from "@/lib/audio-cache";
 
 interface Phrase {
   id: number;
@@ -48,12 +49,16 @@ export default function ReviewPage() {
     }
     setPlaying(true);
     try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      const blob = await res.blob();
+      let blob = await getCachedAudio(text);
+      if (!blob) {
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        blob = await res.blob();
+        await setCachedAudio(text, blob);
+      }
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;
