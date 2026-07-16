@@ -39,17 +39,18 @@ export default function ReviewPage() {
       URL.revokeObjectURL(urlRef.current);
       urlRef.current = null;
     }
-    if (ctxRef.current) {
-      ctxRef.current.close();
-      ctxRef.current = null;
-    }
   }, []);
 
   useEffect(() => {
     mountedRef.current = true;
+    ctxRef.current = new AudioContext();
     return () => {
       mountedRef.current = false;
       teardownAudio();
+      if (ctxRef.current) {
+        ctxRef.current.close();
+        ctxRef.current = null;
+      }
     };
   }, [teardownAudio]);
 
@@ -109,13 +110,14 @@ export default function ReviewPage() {
         const audio = new Audio(url);
         audioRef.current = audio;
 
-        const ctx = new AudioContext();
-        ctxRef.current = ctx;
-        const source = ctx.createMediaElementSource(audio);
-        const gain = ctx.createGain();
+        if (ctxRef.current && ctxRef.current.state === "suspended") {
+          await ctxRef.current.resume();
+        }
+        const source = ctxRef.current!.createMediaElementSource(audio);
+        const gain = ctxRef.current!.createGain();
         gain.gain.value = 2.5;
         source.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(ctxRef.current!.destination);
 
         audio.onended = () => {
           if (!isCancelled() && mountedRef.current) setPlaying(false);

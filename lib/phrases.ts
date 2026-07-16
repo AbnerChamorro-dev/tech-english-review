@@ -25,8 +25,7 @@ export async function getDuePhrases(db: Client, limit = 50): Promise<PhraseWithR
           FROM phrases p
           INNER JOIN completed_stories cs ON cs.story_id = p.story_id
           LEFT JOIN reviews r ON r.phrase_id = p.id
-          WHERE (r.next_review IS NULL OR r.next_review <= ?)
-            AND p.id IN (SELECT MIN(id) FROM phrases GROUP BY story_id, "order")
+          WHERE r.next_review IS NULL OR r.next_review <= ?
           ORDER BY r.next_review ASC NULLS FIRST, p."order" ASC
           LIMIT ?`,
     args: [today, limit],
