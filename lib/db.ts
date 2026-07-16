@@ -46,9 +46,7 @@ export async function initSchema() {
       interval INTEGER NOT NULL DEFAULT 1,
       ease REAL NOT NULL DEFAULT 2.5,
       reviews_count INTEGER NOT NULL DEFAULT 0,
-      last_seen TEXT,
-      queue INTEGER NOT NULL DEFAULT 0,
-      learning_step INTEGER NOT NULL DEFAULT 0
+      last_seen TEXT
     );
 
     CREATE TABLE IF NOT EXISTS completed_stories (
@@ -56,4 +54,16 @@ export async function initSchema() {
       completed_at TEXT NOT NULL
     );
   `);
+
+  // Migrate: add queue columns to existing reviews table
+  try {
+    await db.execute("ALTER TABLE reviews ADD COLUMN queue INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // Column already exists
+  }
+  try {
+    await db.execute("ALTER TABLE reviews ADD COLUMN learning_step INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // Column already exists
+  }
 }
