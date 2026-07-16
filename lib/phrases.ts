@@ -47,10 +47,22 @@ export async function getReviewStats(db: Client) {
   };
 }
 
-export async function reviewPhrase(db: Client, phraseId: number, known: boolean) {
+export async function reviewPhrase(
+  db: Client,
+  phraseId: number,
+  known: boolean
+): Promise<boolean> {
   const today = new Date().toISOString().split("T")[0];
-  const existing = await db.execute({ sql: "SELECT * FROM reviews WHERE phrase_id = ?", args: [phraseId] });
+
+  const existing = await db.execute({ sql: "SELECT interval, ease FROM reviews WHERE phrase_id = ?", args: [phraseId] });
   const row = existing.rows[0];
+
+  if (!row) {
+    // No review yet: confirm the phrase exists before inserting, since SQLite
+    // does not enforce the foreign key by default.
+    const phrase = await db.execute({ sql: "SELECT id FROM phrases WHERE id = ?", args: [phraseId] });
+    if (phrase.rows.length === 0) return false;
+  }
 
   const current = row
     ? { interval: Number(row.interval), ease: Number(row.ease) }
@@ -58,21 +70,21 @@ export async function reviewPhrase(db: Client, phraseId: number, known: boolean)
 
   const next = calcNextReview(known, current);
 
-  if (row) {
-    await db.execute({
-      sql: `UPDATE reviews
-            SET next_review = date('now', '+' || ? || ' days'),
-                interval = ?, ease = ?, reviews_count = reviews_count + 1, last_seen = ?
-            WHERE phrase_id = ?`,
-      args: [next.interval, next.interval, next.ease, today, phraseId],
-    });
-  } else {
-    await db.execute({
-      sql: `INSERT INTO reviews (phrase_id, next_review, interval, ease, reviews_count, last_seen)
-            VALUES (?, date('now', '+' || ? || ' days'), ?, ?, 1, ?)`,
-      args: [phraseId, next.interval, next.interval, next.ease, today],
-    });
-  }
+  await db.execute({
+    sql: `INSERT INTO reviews (phrase_id, next_review, interval, ease, reviews_count, last_seen)
+          VALUES (?, date('now', '+' || ? || ' days'), ?, ?, 1, ?)
+          ON CONFLICT(phrase_id) DO UPDATE SET
+            next_review = date('now', '+' || ? || ' days'),
+            interval = ?,
+            ease = ?,
+            reviews_count = reviews_count + 1,
+            last_seen = ?`,
+    args: [
+      phraseId, next.interval, next.interval, next.ease, today,
+      next.interval, next.interval, next.ease, today,
+    ],
+  });
+  return true;
 }
 
 export async function getStoriesWithStatus(db: Client) {

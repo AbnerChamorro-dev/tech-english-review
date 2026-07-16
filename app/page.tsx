@@ -11,18 +11,40 @@ interface Stats {
 
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [error, setError] = useState(false);
 
-  useEffect(() => {
+  const load = () => {
     fetch("/api/stats")
-      .then((r) => r.json())
-      .then(setStats);
-  }, []);
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(setStats)
+      .catch(() => setError(true));
+  };
+
+  const retry = () => {
+    setError(false);
+    load();
+  };
+
+  useEffect(load, []);
 
   return (
     <div className="flex flex-col gap-5">
       <h1 className="text-2xl font-bold">Hoy</h1>
 
-      {stats ? (
+      {error ? (
+        <div className="rounded-2xl bg-gray-100 p-4 text-center dark:bg-gray-900">
+          <p className="text-sm text-gray-500">No se pudieron cargar las estadísticas.</p>
+          <button
+            onClick={retry}
+            className="mt-3 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white active:bg-blue-700"
+          >
+            Reintentar
+          </button>
+        </div>
+      ) : stats ? (
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-2xl bg-blue-50 p-4 text-center dark:bg-blue-950">
             <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{stats.due}</p>

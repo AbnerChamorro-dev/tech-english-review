@@ -1,15 +1,30 @@
 import { createClient, type Client } from "@libsql/client";
 
 let _client: Client | null = null;
+let _ready: Promise<Client> | null = null;
 
 export function getClient(): Client {
   if (!_client) {
+    const url = process.env.TURSO_DATABASE_URL;
+    if (!url) {
+      throw new Error("Falta TURSO_DATABASE_URL en .env");
+    }
     _client = createClient({
-      url: process.env.TURSO_DATABASE_URL!,
+      url,
       authToken: process.env.TURSO_AUTH_TOKEN,
     });
   }
   return _client;
+}
+
+// Returns a client with the schema guaranteed to exist. initSchema() runs at
+// most once per process (the promise is memoized), so a fresh database doesn't
+// crash the API routes with "no such table".
+export function getDb(): Promise<Client> {
+  if (!_ready) {
+    _ready = initSchema().then(() => getClient());
+  }
+  return _ready;
 }
 
 export async function initSchema() {

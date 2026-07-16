@@ -1,5 +1,20 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Setup
+
+1. Copia las variables de entorno necesarias en `.env`:
+
+   ```bash
+   OPENAI_API_KEY=...        # para el TTS
+   TURSO_DATABASE_URL=...    # turso db show <db>
+   TURSO_AUTH_TOKEN=...      # turso db tokens create <db>
+   ```
+
+2. **Seed de frases** (`npm run seed`): depende del repo hermano
+   [`tech-english`](../tech-english) clonado **junto a este proyecto**
+   (`../tech-english/content/stories.ts`). Sin él, el seed aborta con un
+   mensaje explicando qué falta.
+
 ## Getting Started
 
 First, run the development server:

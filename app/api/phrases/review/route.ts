@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getClient } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { reviewPhrase } from "@/lib/phrases";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,10 @@ export async function POST(req: Request) {
   if (typeof phraseId !== "number" || typeof known !== "boolean") {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
-  const db = getClient();
-  await reviewPhrase(db, phraseId, known);
+  const db = await getDb();
+  const ok = await reviewPhrase(db, phraseId, known);
+  if (!ok) {
+    return NextResponse.json({ error: "Phrase not found" }, { status: 404 });
+  }
   return NextResponse.json({ ok: true });
 }

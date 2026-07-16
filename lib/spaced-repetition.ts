@@ -1,5 +1,5 @@
 const MIN_EASE = 1.3;
-const MAX_EASE = 2.5;
+const MAX_EASE = 3.0;
 const EASE_UP = 0.1;
 const EASE_DOWN = 0.2;
 

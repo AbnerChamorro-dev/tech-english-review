@@ -20,26 +20,59 @@ const LEVEL_COLORS: Record<string, string> = {
 export default function StoriesPage() {
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const load = () => {
     fetch("/api/stories")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((data: Story[]) => {
         setStories(data);
         setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+        setError(true);
       });
+  };
+
+  const retry = () => {
+    setError(false);
+    setLoading(true);
+    load();
   };
 
   useEffect(load, []);
 
   const toggle = async (storyId: string, completed: boolean) => {
-    await fetch("/api/stories/complete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ storyId, completed: !completed }),
-    });
+    try {
+      const res = await fetch("/api/stories/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storyId, completed: !completed }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch {
+      return;
+    }
     load();
   };
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center gap-4 pt-10">
+        <p className="text-sm text-gray-500">No se pudieron cargar las stories.</p>
+        <button
+          onClick={retry}
+          className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white active:bg-blue-700"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

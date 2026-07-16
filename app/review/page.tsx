@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { getCachedAudio, setCachedAudio } from "@/lib/audio-cache";
+import { fetchTTS } from "@/lib/tts-client";
 
 interface Phrase {
   id: number;
@@ -23,22 +23,42 @@ export default function ReviewPage() {
   const [loading, setLoading] = useState(true);
   const [done, setDone] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const urlRef = useRef<string | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const mountedRef = useRef(true);
+
+  const teardownAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
+    if (ctxRef.current) {
+      ctxRef.current.close();
+      ctxRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (audioRef.current) audioRef.current.pause();
-      if (ctxRef.current) ctxRef.current.close();
+      teardownAudio();
     };
-  }, []);
+  }, [teardownAudio]);
 
   useEffect(() => {
     fetch("/api/phrases/due")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then(async (data: Phrase[]) => {
         if (!mountedRef.current) return;
         setPhrases(data);
@@ -53,94 +73,39 @@ export default function ReviewPage() {
         const worker = async () => {
           while (idx < data.length) {
             const i = idx++;
-            const text = data[i].en;
-            const cached = await getCachedAudio(text);
-            if (cached) continue;
             try {
-              const res = await fetch("/api/tts", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text }),
-              });
-              const blob = await res.blob();
-              await setCachedAudio(text, blob);
-            } catch { /* skip */ }
+              await fetchTTS(data[i].en);
+            } catch {
+              /* skip failed pre-fetch; it will retry on demand */
+            }
           }
         };
-        await Promise.all(Array.from({ length: Math.min(concurrency, data.length) }, () => worker()));
+        await Promise.all(
+          Array.from({ length: Math.min(concurrency, data.length) }, () => worker())
+        );
+      })
+      .catch(() => {
+        if (!mountedRef.current) return;
+        setLoading(false);
+        setError(true);
       });
   }, []);
 
-  const playAudio = useCallback(async (text: string) => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    if (ctxRef.current) {
-      ctxRef.current.close();
-      ctxRef.current = null;
-    }
-    setPlaying(true);
-    try {
-      let blob = await getCachedAudio(text);
-      if (!blob) {
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
-        });
-        blob = await res.blob();
-        await setCachedAudio(text, blob);
+  const startPlayback = useCallback(
+    async (text: string, isCancelled: () => boolean) => {
+      teardownAudio();
+      let blob: Blob;
+      try {
+        blob = await fetchTTS(text);
+      } catch {
+        if (!isCancelled() && mountedRef.current) setPlaying(false);
+        return;
       }
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audioRef.current = audio;
-
-      const ctx = new AudioContext();
-      ctxRef.current = ctx;
-      const source = ctx.createMediaElementSource(audio);
-      const gain = ctx.createGain();
-      gain.gain.value = 2.5;
-      source.connect(gain);
-      gain.connect(ctx.destination);
-
-      audio.onended = () => { if (mountedRef.current) setPlaying(false); };
-      audio.onerror = () => { if (mountedRef.current) setPlaying(false); };
-      await audio.play();
-    } catch {
-      if (mountedRef.current) setPlaying(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (phrases.length === 0 || index >= phrases.length) return;
-    const phrase = phrases[index];
-    let cancelled = false;
-
-    const load = async () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      if (ctxRef.current) {
-        ctxRef.current.close();
-        ctxRef.current = null;
-      }
+      if (isCancelled() || !mountedRef.current) return;
       setPlaying(true);
       try {
-        let blob = await getCachedAudio(phrase.en);
-        if (!blob) {
-          const res = await fetch("/api/tts", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: phrase.en }),
-          });
-          if (cancelled) return;
-          blob = await res.blob();
-          await setCachedAudio(phrase.en, blob);
-        }
-        if (cancelled) return;
         const url = URL.createObjectURL(blob);
+        urlRef.current = url;
         const audio = new Audio(url);
         audioRef.current = audio;
 
@@ -152,37 +117,57 @@ export default function ReviewPage() {
         source.connect(gain);
         gain.connect(ctx.destination);
 
-        audio.onended = () => { if (!cancelled && mountedRef.current) setPlaying(false); };
-        audio.onerror = () => { if (!cancelled && mountedRef.current) setPlaying(false); };
+        audio.onended = () => {
+          if (!isCancelled() && mountedRef.current) setPlaying(false);
+        };
+        audio.onerror = () => {
+          if (!isCancelled() && mountedRef.current) setPlaying(false);
+        };
         await audio.play();
       } catch {
-        if (!cancelled && mountedRef.current) setPlaying(false);
+        if (!isCancelled() && mountedRef.current) setPlaying(false);
       }
-    };
+    },
+    [teardownAudio]
+  );
 
-    load();
+  const playAudio = useCallback(
+    (text: string) => {
+      void startPlayback(text, () => false);
+    },
+    [startPlayback]
+  );
+
+  useEffect(() => {
+    if (phrases.length === 0 || index >= phrases.length) return;
+    const phrase = phrases[index];
+    let cancelled = false;
+
+    void startPlayback(phrase.en, () => cancelled);
 
     return () => {
       cancelled = true;
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      if (ctxRef.current) {
-        ctxRef.current.close();
-        ctxRef.current = null;
-      }
+      teardownAudio();
     };
-  }, [index, phrases]);
+  }, [index, phrases, startPlayback, teardownAudio]);
 
   const review = useCallback(
     async (known: boolean) => {
+      if (submitting) return;
       const phrase = phrases[index];
-      await fetch("/api/phrases/review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phraseId: phrase.id, known }),
-      });
+      setSubmitting(true);
+      try {
+        const res = await fetch("/api/phrases/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phraseId: phrase.id, known }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch {
+        setSubmitting(false);
+        return;
+      }
+      setSubmitting(false);
       setShowTranslation(false);
       if (index + 1 >= phrases.length) {
         setDone(true);
@@ -190,13 +175,27 @@ export default function ReviewPage() {
         setIndex(index + 1);
       }
     },
-    [phrases, index]
+    [phrases, index, submitting]
   );
 
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-gray-400">Cargando frases...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-6 px-6">
+        <p className="text-lg font-semibold">No se pudieron cargar las frases</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="w-full rounded-2xl bg-blue-600 py-4 text-lg font-semibold text-white active:bg-blue-700"
+        >
+          Reintentar
+        </button>
       </div>
     );
   }
@@ -273,13 +272,15 @@ export default function ReviewPage() {
       <div className="mt-auto grid grid-cols-2 gap-3 pt-4">
         <button
           onClick={() => review(false)}
-          className="rounded-2xl border border-red-200 bg-red-50 py-3.5 text-base font-semibold text-red-600 active:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:text-red-400 dark:active:bg-red-900"
+          disabled={submitting}
+          className="rounded-2xl border border-red-200 bg-red-50 py-3.5 text-base font-semibold text-red-600 active:bg-red-100 disabled:opacity-50 dark:border-red-900 dark:bg-red-950 dark:text-red-400 dark:active:bg-red-900"
         >
           No la conozco
         </button>
         <button
           onClick={() => review(true)}
-          className="rounded-2xl border border-green-200 bg-green-50 py-3.5 text-base font-semibold text-green-600 active:bg-green-100 dark:border-green-900 dark:bg-green-950 dark:text-green-400 dark:active:bg-green-900"
+          disabled={submitting}
+          className="rounded-2xl border border-green-200 bg-green-50 py-3.5 text-base font-semibold text-green-600 active:bg-green-100 disabled:opacity-50 dark:border-green-900 dark:bg-green-950 dark:text-green-400 dark:active:bg-green-900"
         >
           La conozco
         </button>

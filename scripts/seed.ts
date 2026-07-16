@@ -1,10 +1,12 @@
 import { createClient } from "@libsql/client";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", ".env.local") });
+dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 async function main() {
   const db = createClient({
@@ -37,6 +39,14 @@ async function main() {
   `);
 
   const storiesPath = path.join(__dirname, "..", "..", "tech-english", "content", "stories.ts");
+  if (!fs.existsSync(storiesPath)) {
+    console.error(
+      `No se encontró el corpus de frases en:\n  ${storiesPath}\n\n` +
+        "El seed depende del repo hermano 'tech-english' colocado junto a este proyecto.\n" +
+        "Clónalo al lado de tech-english-review y vuelve a ejecutar `npm run seed`."
+    );
+    process.exit(1);
+  }
   const { STORIES } = await import(storiesPath);
 
   const batch: { sql: string; args: (string | number)[] }[] = [];
@@ -62,4 +72,7 @@ async function main() {
   console.log(`\nDone! Imported ${count} phrases from ${STORIES.length} stories into Turso`);
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
