@@ -1,5 +1,7 @@
 export type Level = "A2" | "B1" | "B2" | "C1";
 
+export type Queue = 0 | 1 | 2 | 3; // 0=new, 1=learning, 2=review, 3=lapsed
+
 export interface Phrase {
   id: number;
   story_id: string;
@@ -17,6 +19,8 @@ export interface Review {
   ease: number;
   reviews_count: number;
   last_seen: string | null;
+  queue: Queue;
+  learning_step: number;
 }
 
 export interface PhraseWithReview extends Phrase {
@@ -25,6 +29,8 @@ export interface PhraseWithReview extends Phrase {
   ease: number;
   reviews_count: number;
   last_seen: string | null;
+  queue: Queue;
+  learning_step: number;
 }
 
 export interface CompletedStory {

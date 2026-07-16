@@ -5,8 +5,10 @@ import Link from "next/link";
 
 interface Stats {
   total: number;
-  due: number;
-  learned: number;
+  learning: number;
+  new: number;
+  review: number;
+  lapsed: number;
 }
 
 export default function Dashboard() {
@@ -30,6 +32,8 @@ export default function Dashboard() {
 
   useEffect(load, []);
 
+  const due = stats ? stats.learning + stats.new + stats.review + stats.lapsed : 0;
+
   return (
     <div className="flex flex-col gap-5">
       <h1 className="text-2xl font-bold">Hoy</h1>
@@ -45,20 +49,36 @@ export default function Dashboard() {
           </button>
         </div>
       ) : stats ? (
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-2xl bg-blue-50 p-4 text-center dark:bg-blue-950">
-            <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{stats.due}</p>
-            <p className="mt-1 text-xs text-gray-500">Pendientes</p>
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-blue-50 p-4 text-center dark:bg-blue-950">
+              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{due}</p>
+              <p className="mt-1 text-xs text-gray-500">Pendientes</p>
+            </div>
+            <div className="rounded-2xl bg-gray-100 p-4 text-center dark:bg-gray-900">
+              <p className="text-3xl font-bold text-gray-600 dark:text-gray-300">{stats.total}</p>
+              <p className="mt-1 text-xs text-gray-500">Total</p>
+            </div>
           </div>
-          <div className="rounded-2xl bg-green-50 p-4 text-center dark:bg-green-950">
-            <p className="text-3xl font-bold text-green-600 dark:text-green-400">{stats.learned}</p>
-            <p className="mt-1 text-xs text-gray-500">Aprendidas</p>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="rounded-xl bg-yellow-50 p-3 text-center dark:bg-yellow-950">
+              <p className="text-lg font-bold text-yellow-600 dark:text-yellow-400">{stats.learning}</p>
+              <p className="text-[10px] text-gray-500">Aprendiendo</p>
+            </div>
+            <div className="rounded-xl bg-purple-50 p-3 text-center dark:bg-purple-950">
+              <p className="text-lg font-bold text-purple-600 dark:text-purple-400">{stats.new}</p>
+              <p className="text-[10px] text-gray-500">Nuevas</p>
+            </div>
+            <div className="rounded-xl bg-green-50 p-3 text-center dark:bg-green-950">
+              <p className="text-lg font-bold text-green-600 dark:text-green-400">{stats.review}</p>
+              <p className="text-[10px] text-gray-500">Repaso</p>
+            </div>
+            <div className="rounded-xl bg-red-50 p-3 text-center dark:bg-red-950">
+              <p className="text-lg font-bold text-red-600 dark:text-red-400">{stats.lapsed}</p>
+              <p className="text-[10px] text-gray-500">Olvidadas</p>
+            </div>
           </div>
-          <div className="rounded-2xl bg-gray-100 p-4 text-center dark:bg-gray-900">
-            <p className="text-3xl font-bold text-gray-600 dark:text-gray-300">{stats.total}</p>
-            <p className="mt-1 text-xs text-gray-500">Total</p>
-          </div>
-        </div>
+        </>
       ) : (
         <div className="grid grid-cols-3 gap-3">
           {[1, 2, 3].map((i) => (

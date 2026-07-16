@@ -46,7 +46,9 @@ export async function initSchema() {
       interval INTEGER NOT NULL DEFAULT 1,
       ease REAL NOT NULL DEFAULT 2.5,
       reviews_count INTEGER NOT NULL DEFAULT 0,
-      last_seen TEXT
+      last_seen TEXT,
+      queue INTEGER NOT NULL DEFAULT 0,
+      learning_step INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS completed_stories (
