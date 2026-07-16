@@ -38,6 +38,16 @@ async function main() {
     );
   `);
 
+  // Fix data from earlier non-idempotent seed runs: drop duplicate phrases
+  // (same story_id + order), keeping the lowest id, then enforce uniqueness so
+  // re-seeding upserts instead of duplicating.
+  await db.executeMultiple(`
+    DELETE FROM phrases
+    WHERE id NOT IN (SELECT MIN(id) FROM phrases GROUP BY story_id, "order");
+    DELETE FROM reviews WHERE phrase_id NOT IN (SELECT id FROM phrases);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_phrases_story_order ON phrases(story_id, "order");
+  `);
+
   const storiesPath = path.join(__dirname, "..", "..", "tech-english", "content", "stories.ts");
   if (!fs.existsSync(storiesPath)) {
     console.error(
@@ -55,7 +65,13 @@ async function main() {
   for (const story of STORIES) {
     for (const line of story.lines) {
       batch.push({
-        sql: 'INSERT INTO phrases (story_id, story_title, level, en, es, "order") VALUES (?, ?, ?, ?, ?, ?)',
+        sql: `INSERT INTO phrases (story_id, story_title, level, en, es, "order")
+              VALUES (?, ?, ?, ?, ?, ?)
+              ON CONFLICT(story_id, "order") DO UPDATE SET
+                story_title = excluded.story_title,
+                level = excluded.level,
+                en = excluded.en,
+                es = excluded.es`,
         args: [story.id, story.title, story.level, line.en, line.es, count],
       });
       count++;

@@ -25,7 +25,8 @@ export async function getDuePhrases(db: Client, limit = 50): Promise<PhraseWithR
           FROM phrases p
           INNER JOIN completed_stories cs ON cs.story_id = p.story_id
           LEFT JOIN reviews r ON r.phrase_id = p.id
-          WHERE r.next_review IS NULL OR r.next_review <= ?
+          WHERE (r.next_review IS NULL OR r.next_review <= ?)
+            AND p.id IN (SELECT MIN(id) FROM phrases GROUP BY story_id, "order")
           ORDER BY r.next_review ASC NULLS FIRST, p."order" ASC
           LIMIT ?`,
     args: [today, limit],
@@ -36,8 +37,8 @@ export async function getDuePhrases(db: Client, limit = 50): Promise<PhraseWithR
 export async function getReviewStats(db: Client) {
   const today = new Date().toISOString().split("T")[0];
   const [total, due, learned] = await Promise.all([
-    db.execute("SELECT COUNT(*) as n FROM phrases p INNER JOIN completed_stories cs ON cs.story_id = p.story_id"),
-    db.execute({ sql: "SELECT COUNT(*) as n FROM phrases p INNER JOIN completed_stories cs ON cs.story_id = p.story_id LEFT JOIN reviews r ON r.phrase_id = p.id WHERE r.next_review IS NULL OR r.next_review <= ?", args: [today] }),
+    db.execute("SELECT COUNT(DISTINCT p.story_id || '#' || p.\"order\") as n FROM phrases p INNER JOIN completed_stories cs ON cs.story_id = p.story_id"),
+    db.execute({ sql: "SELECT COUNT(DISTINCT p.story_id || '#' || p.\"order\") as n FROM phrases p INNER JOIN completed_stories cs ON cs.story_id = p.story_id LEFT JOIN reviews r ON r.phrase_id = p.id WHERE r.next_review IS NULL OR r.next_review <= ?", args: [today] }),
     db.execute("SELECT COUNT(*) as n FROM reviews WHERE interval >= 7"),
   ]);
   return {
@@ -89,7 +90,7 @@ export async function reviewPhrase(
 
 export async function getStoriesWithStatus(db: Client) {
   const result = await db.execute(`
-    SELECT p.story_id, p.story_title, p.level, COUNT(*) as phrase_count,
+    SELECT p.story_id, p.story_title, p.level, COUNT(DISTINCT p."order") as phrase_count,
            cs.completed_at
     FROM phrases p
     LEFT JOIN completed_stories cs ON cs.story_id = p.story_id

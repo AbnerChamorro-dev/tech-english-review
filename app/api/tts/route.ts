@@ -24,7 +24,7 @@ export async function POST(req: Request) {
       model: "tts-1-hd",
       voice: "alloy",
       input: text,
-      speed: 1.15,
+      speed: 1.0,
       response_format: "mp3",
     });
     const audio = Buffer.from(await response.arrayBuffer());

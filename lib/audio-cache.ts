@@ -1,11 +1,19 @@
 const DB_NAME = "tech-english-audio";
 const STORE_NAME = "audio";
-const DB_VERSION = 1;
+// Bump when the generated audio changes (e.g. speech speed) so previously
+// cached clips are purged instead of served stale.
+const DB_VERSION = 2;
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE_NAME);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (db.objectStoreNames.contains(STORE_NAME)) {
+        db.deleteObjectStore(STORE_NAME);
+      }
+      db.createObjectStore(STORE_NAME);
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
