@@ -25,19 +25,30 @@ export default function ReviewPage() {
   const [playing, setPlaying] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const urlRef = useRef<string | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const mountedRef = useRef(true);
 
-  const teardownAudio = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
+  // A single AudioContext is reused across playbacks. Creating a fresh one per
+  // clip (and starting playback before it resumes) is what clipped the first
+  // words of each phrase.
+  const getContext = useCallback(() => {
+    if (!ctxRef.current) {
+      ctxRef.current = new AudioContext();
     }
-    if (urlRef.current) {
-      URL.revokeObjectURL(urlRef.current);
-      urlRef.current = null;
+    return ctxRef.current;
+  }, []);
+
+  const teardownAudio = useCallback(() => {
+    if (sourceRef.current) {
+      sourceRef.current.onended = null;
+      try {
+        sourceRef.current.stop();
+      } catch {
+        /* already stopped/ended */
+      }
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
     }
   }, []);
 
@@ -105,32 +116,35 @@ export default function ReviewPage() {
       if (isCancelled() || !mountedRef.current) return;
       setPlaying(true);
       try {
-        const url = URL.createObjectURL(blob);
-        urlRef.current = url;
-        const audio = new Audio(url);
-        audioRef.current = audio;
+        const ctx = getContext();
+        // Resume before decoding/playing: a context that starts suspended
+        // would advance its clock late and clip the first words.
+        await ctx.resume();
+        if (isCancelled() || !mountedRef.current) return;
 
-        if (ctxRef.current && ctxRef.current.state === "suspended") {
-          await ctxRef.current.resume();
-        }
-        const source = ctxRef.current!.createMediaElementSource(audio);
-        const gain = ctxRef.current!.createGain();
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        if (isCancelled() || !mountedRef.current) return;
+
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuffer;
+        const gain = ctx.createGain();
         gain.gain.value = 2.5;
         source.connect(gain);
-        gain.connect(ctxRef.current!.destination);
+        gain.connect(ctx.destination);
 
-        audio.onended = () => {
+        source.onended = () => {
           if (!isCancelled() && mountedRef.current) setPlaying(false);
         };
-        audio.onerror = () => {
-          if (!isCancelled() && mountedRef.current) setPlaying(false);
-        };
-        await audio.play();
+        sourceRef.current = source;
+        // AudioBufferSourceNode plays from the exact start of the buffer once
+        // the context is running, so no leading audio is lost.
+        source.start();
       } catch {
         if (!isCancelled() && mountedRef.current) setPlaying(false);
       }
     },
-    [teardownAudio]
+    [teardownAudio, getContext]
   );
 
   const playAudio = useCallback(

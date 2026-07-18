@@ -148,20 +148,38 @@ export async function reviewPhrase(
 }
 
 export async function getStoriesWithStatus(db: Client) {
-  const result = await db.execute(`
-    SELECT p.story_id, p.story_title, p.level, COUNT(DISTINCT p."order") as phrase_count,
-           cs.completed_at
-    FROM phrases p
-    LEFT JOIN completed_stories cs ON cs.story_id = p.story_id
-    GROUP BY p.story_id
-    ORDER BY MIN(p."order")
-  `);
+  const [meta, phraseRows] = await Promise.all([
+    db.execute(`
+      SELECT p.story_id, p.story_title, p.level, COUNT(DISTINCT p."order") as phrase_count,
+             cs.completed_at
+      FROM phrases p
+      LEFT JOIN completed_stories cs ON cs.story_id = p.story_id
+      GROUP BY p.story_id
+      ORDER BY MIN(p."order")
+    `),
+    // The English text of each phrase (deduped per story/order, matching how
+    // getDuePhrases picks rows) so the client can pre-cache the audio.
+    db.execute(`
+      SELECT story_id, en FROM phrases
+      WHERE id IN (SELECT MIN(id) FROM phrases GROUP BY story_id, "order")
+      ORDER BY story_id, "order"
+    `),
+  ]);
 
-  return result.rows.map((s) => ({
+  const phrasesByStory = new Map<string, string[]>();
+  for (const r of phraseRows.rows) {
+    const sid = r.story_id as string;
+    const list = phrasesByStory.get(sid) ?? [];
+    list.push(r.en as string);
+    phrasesByStory.set(sid, list);
+  }
+
+  return meta.rows.map((s) => ({
     id: s.story_id as string,
     title: s.story_title as string,
     level: s.level as Level,
     phraseCount: Number(s.phrase_count),
     completed: s.completed_at !== null,
+    phrases: phrasesByStory.get(s.story_id as string) ?? [],
   }));
 }

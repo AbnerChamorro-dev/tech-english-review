@@ -29,6 +29,16 @@ export async function getCachedAudio(text: string): Promise<Blob | null> {
   });
 }
 
+export async function getCachedKeys(): Promise<Set<string>> {
+  const db = await openDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const req = tx.objectStore(STORE_NAME).getAllKeys();
+    req.onsuccess = () => resolve(new Set(req.result as string[]));
+    req.onerror = () => resolve(new Set());
+  });
+}
+
 export async function setCachedAudio(text: string, blob: Blob): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
